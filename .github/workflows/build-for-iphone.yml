@@ -10,9 +10,12 @@ on:
           - f0x
 permissions:
   contents: read
+concurrency:
+  group: personal-fzerox-intel
+  cancel-in-progress: true
 jobs:
   build:
-    runs-on: macos-26-intel
+    runs-on: macos-15-intel
     timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
