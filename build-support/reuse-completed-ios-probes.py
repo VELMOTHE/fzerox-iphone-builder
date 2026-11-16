@@ -12,7 +12,7 @@ with zipfile.ZipFile(io.BytesIO(data)) as archive:
     names = [n for n in archive.namelist() if n.endswith("CMakeCache.txt")]
     assert len(names) == 1
     cache = archive.read(names[0]).decode()
-assert "iphoneos26.2" in cache
+assert "iphoneos26.2" in cache.lower()
 allowed = re.compile(r"^(HAVE_|CHECK_CPU_|COMPILER_SUPPORTS_|SIZEOF_|STDC_HEADERS|CMAKE_HAVE_|SDL_CPU_)")
 rows = []
 for line in cache.splitlines():
