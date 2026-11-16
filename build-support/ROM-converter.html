@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>F-Zero X ROM format converter</title>
+<style>body{font:18px system-ui;max-width:650px;margin:60px auto;padding:24px;background:#0d1423;color:#edf3ff;line-height:1.6}h1{font-size:30px}input,button{font:inherit;padding:14px;border-radius:10px}button{background:#5be2ba;border:0;margin-top:20px;cursor:pointer}#status{white-space:pre-wrap}small{color:#afbdd3}</style>
+<h1>F-Zero X → iPhone game data</h1>
+<p>7ell ZIP dyal lgame f Mac dyalk. Khtar fichier <b>.n64</b> li dakhlo, w dghat Convert.</p>
+<input type="file" id="rom" accept=".n64,.v64,.z64"><br><button id="convert">Convert and download .z64</button>
+<p id="status" role="status"></p>
+<small>Conversion katوقع local f navigateur. Lfichier ma kaytsift l7tta serveur. Only verified USA revision 0 is accepted.</small>
+<script>
+"use strict";
+function normalize(bytes) {
+  const output = new Uint8Array(bytes);
+  const magic = Array.from(output.slice(0,4)).map(x=>x.toString(16).padStart(2,"0")).join("");
+  if(magic==="37804012"){
+    for(let i=0;i<output.length;i+=2){const t=output[i];output[i]=output[i+1];output[i+1]=t;}
+  }else if(magic==="40123780"){
+    for(let i=0;i<output.length;i+=4){let t=output[i];output[i]=output[i+3];output[i+3]=t;t=output[i+1];output[i+1]=output[i+2];output[i+2]=t;}
+  }else if(magic!=="80371240"){throw new Error("Unsupported N64 file signature.");}
+  return output;
+}
+function sha1(bytes) {
+  const length=bytes.length, total=((length+9+63)>>6)<<6, padded=new Uint8Array(total);
+  padded.set(bytes);padded[length]=128;
+  const view=new DataView(padded.buffer);
+  view.setUint32(total-8, Math.floor(length/536870912));view.setUint32(total-4,(length*8)>>>0);
+  let h0=0x67452301,h1=0xefcdab89,h2=0x98badcfe,h3=0x10325476,h4=0xc3d2e1f0;
+  const w=new Int32Array(80), rol=(x,n)=>(x<<n)|(x>>>(32-n));
+  for(let block=0;block<total;block+=64){
+    for(let i=0;i<16;i++)w[i]=view.getInt32(block+i*4);
+    for(let i=16;i<80;i++)w[i]=rol(w[i-3]^w[i-8]^w[i-14]^w[i-16],1);
+    let a=h0,b=h1,c=h2,d=h3,e=h4;
+    for(let i=0;i<80;i++){
+      let f,k;
+      if(i<20){f=(b&c)|(~b&d);k=0x5a827999;}else if(i<40){f=b^c^d;k=0x6ed9eba1;}else if(i<60){f=(b&c)|(b&d)|(c&d);k=0x8f1bbcdc;}else{f=b^c^d;k=0xca62c1d6;}
+      const t=(rol(a,5)+f+e+k+w[i])|0;e=d;d=c;c=rol(b,30);b=a;a=t;
+    }
+    h0=(h0+a)|0;h1=(h1+b)|0;h2=(h2+c)|0;h3=(h3+d)|0;h4=(h4+e)|0;
+  }
+  return [h0,h1,h2,h3,h4].map(x=>(x>>>0).toString(16).padStart(8,"0")).join("");
+}
+document.getElementById("convert").onclick=async()=>{
+ const status=document.getElementById("status"), button=document.getElementById("convert");
+ try{
+  const file=document.getElementById("rom").files[0];if(!file)throw new Error("Khtar fichier .n64/.v64/.z64 lwel.");
+  button.disabled=true;status.textContent="Converting and verifying…";
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  if(bytes.length!==16777216)throw new Error("Expected a 16 MiB F-Zero X USA rev0 ROM.");
+  const normalized=normalize(bytes), digest=sha1(normalized);
+  if(digest!=="5f658e88ffa9de23cba6986a8fd3d3a90d7b4340")throw new Error("This is not the supported F-Zero X USA rev0 ROM. No file created.");
+  const url=URL.createObjectURL(new Blob([normalized],{type:"application/octet-stream"}));
+  const link=document.createElement("a");link.href=url;link.download="FZeroX_USA_rev0.z64";link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  status.textContent="Verified. FZeroX_USA_rev0.z64 downloaded.\nSift had fichier l Files dyal iPhone, w importih f F0X.";
+ }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+};
+</script></html>
