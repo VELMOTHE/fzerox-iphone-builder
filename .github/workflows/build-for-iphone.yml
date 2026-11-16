@@ -1,15 +1,18 @@
 name: Build a game for iPhone and iPad
 on:
+  push:
+    branches: [iphone-intel-build]
+    paths: [.github/workflows/build-for-iphone.yml]
   workflow_dispatch:
     inputs:
       game:
         description: Game
         required: true
         type: choice
-        options:
-          - f0x
+        options: [f0x]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: personal-fzerox-intel
   cancel-in-progress: true
@@ -25,6 +28,22 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Verify delivery helpers
+        run: |
+          python3 -m py_compile build-support/reuse-completed-ios-probes.py build-support/review-personal-device-package.py
+          node <<'JS'
+          const fs = require("fs"), vm = require("vm"), assert = require("assert");
+          const script = fs.readFileSync("build-support/ROM-converter.html","utf8").split("<script>")[1].split("</script>")[0].split('document.getElementById("convert").onclick')[0];
+          const context = {Uint8Array, DataView, Int32Array};
+          vm.createContext(context); vm.runInContext(script,context);
+          assert.equal(context.sha1(new Uint8Array()), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+          assert.equal(context.sha1(new TextEncoder().encode("abc")), "a9993e364706816aba3e25717850c26c9cd0d89d");
+          assert.equal(context.sha1(new TextEncoder().encode("a".repeat(1000000))), "34aa973cd4c4daa4f61eeb2bdbad27316534016f");
+          for (const bytes of [[0x80,0x37,0x12,0x40],[0x37,0x80,0x40,0x12],[0x40,0x12,0x37,0x80]]) {
+            assert.equal(Buffer.from(context.normalize(new Uint8Array(bytes))).toString("hex"), "80371240");
+          }
+          console.log("Converter: SHA1 standard vectors and all three N64 byte orders verified.");
+          JS
       - name: Verify Apple toolchain
         run: |
           uname -m
@@ -33,21 +52,23 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-path
           command -v cmake || brew install cmake
           command -v ninja || brew install ninja
+      - name: Reuse completed probes from the same Apple SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 build-support/reuse-completed-ios-probes.py "$RUNNER_TEMP/completed-ios-probes.cmake"
       - name: Build the pinned F0X iPhone app
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           git clone --depth 1 --branch v0.1.2 https://github.com/chrissotraidis/f0x.git "$RUNNER_TEMP/f0x"
-          git -C "$RUNNER_TEMP/f0x" rev-parse HEAD
-          python3 build-support/prepare-iphone-build.py "$RUNNER_TEMP/f0x" --cache "$GITHUB_WORKSPACE/build-support/ios26_2_arm64_probes.cmake"
+          test "$(git -C "$RUNNER_TEMP/f0x" rev-parse HEAD)" = b275dbbfb19c18ffe50c95d65f0e6be3d4e9576f
+          python3 build-support/prepare-iphone-build.py "$RUNNER_TEMP/f0x" --cache "$RUNNER_TEMP/completed-ios-probes.cmake"
           F0X_BUILD_JOBS=3 bash "$RUNNER_TEMP/f0x/scripts/build-padmint-ios.sh" "$RUNNER_TEMP/out/F0X-v0.1.2-ios-personal.ipa"
-      - name: Audit the device package
-        run: |
-          python3 -m padmint audit "$RUNNER_TEMP/out/F0X-v0.1.2-ios-personal.ipa"
           cd "$RUNNER_TEMP/out"
-          shasum -a 256 ./*.ipa | tee SHA256SUMS
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+          shasum -a 256 ./*.ipa > SHA256SUMS
+      - name: Keep the compiled device candidate for source review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: f0x-iphone-personal
+          name: f0x-device-build-candidate
           path: |
             ${{ runner.temp }}/out/*.ipa
             ${{ runner.temp }}/out/SHA256SUMS
@@ -61,5 +82,45 @@ jobs:
           path: |
             ${{ runner.temp }}/f0x/build/f0x-ios-device/CMakeCache.txt
             ${{ runner.temp }}/f0x/build/f0x-ios-device/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 1
+          if-no-files-found: ignore
+  personal-source-review:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: f0x-device-build-candidate
+          path: ${{ runner.temp }}/out
+      - name: Verify the original device checksum
+        working-directory: ${{ runner.temp }}/out
+        run: sha256sum -c SHA256SUMS
+      - name: Reconstruct the exact native source checkout
+        run: |
+          git clone --depth 1 --branch v0.1.2 https://github.com/chrissotraidis/f0x.git "$RUNNER_TEMP/f0x"
+          bash "$RUNNER_TEMP/f0x/scripts/setup-sources.sh"
+      - name: Review the personal device package without granting public release clearance
+        run: |
+          python3 build-support/review-personal-device-package.py "$RUNNER_TEMP/f0x" "$RUNNER_TEMP/out/F0X-v0.1.2-ios-personal.ipa" "$RUNNER_TEMP/out"
+          cp build-support/ROM-converter.html build-support/README-iPhone.md "$RUNNER_TEMP/out/"
+          cd "$RUNNER_TEMP/out"
+          sha256sum ./*.ipa ./ROM-converter.html ./README-iPhone.md ./PERSONAL_BUILD_REVIEW.json > SHA256SUMS
+      - name: Export the personal iPhone installation package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: f0x-iphone-personal
+          path: ${{ runner.temp }}/out/*
+          retention-days: 30
+          if-no-files-found: error
+      - name: Keep a failed source review report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: f0x-personal-review-diagnostics
+          path: ${{ runner.temp }}/out/PERSONAL_BUILD_REVIEW.json
           retention-days: 1
           if-no-files-found: ignore
