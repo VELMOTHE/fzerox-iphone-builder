@@ -29,6 +29,7 @@ jobs:
         run: |
           uname -m
           xcodebuild -version
+          python3 -c 'import subprocess; assert "Build version 17C529" in subprocess.check_output(["xcodebuild", "-version"], text=True); assert subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--show-sdk-version"], text=True).strip() == "26.2"'
           xcrun --sdk iphoneos --show-sdk-path
           command -v cmake || brew install cmake
           command -v ninja || brew install ninja
@@ -37,16 +38,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           git clone --depth 1 --branch v0.1.2 https://github.com/chrissotraidis/f0x.git "$RUNNER_TEMP/f0x"
           git -C "$RUNNER_TEMP/f0x" rev-parse HEAD
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          path = Path(os.environ["RUNNER_TEMP"]) / "f0x/scripts/build-padmint-ios.sh"
-          source = path.read_text()
-          needle = "  -DGDX_INPROCESS_TORCH=ON " + chr(92) + chr(10)
-          assert source.count(needle) == 1, "Expected iOS CMake configuration not found"
-          source = source.replace(needle, needle + "  -DCMAKE_DISABLE_FIND_PACKAGE_libzip=ON " + chr(92) + chr(10))
-          path.write_text(source)
-          PY
+          python3 build-support/prepare-iphone-build.py "$RUNNER_TEMP/f0x" --cache "$GITHUB_WORKSPACE/build-support/ios26_2_arm64_probes.cmake"
           F0X_BUILD_JOBS=3 bash "$RUNNER_TEMP/f0x/scripts/build-padmint-ios.sh" "$RUNNER_TEMP/out/F0X-v0.1.2-ios-personal.ipa"
       - name: Audit the device package
         run: |
