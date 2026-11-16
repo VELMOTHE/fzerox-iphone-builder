@@ -4,6 +4,7 @@ This never turns a public-release FAIL into a PASS or grants release clearance.
 """
 import hashlib, json, re, struct, subprocess, sys, zipfile, plistlib
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from padmint import gate
 root, ipa, out = map(Path, sys.argv[1:])
 findings, count = gate.check(str(ipa))
