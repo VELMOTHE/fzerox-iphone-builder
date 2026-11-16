@@ -22,7 +22,9 @@ for path in native.rglob("*"):
         continue
     _, defined, _ = gate.function_evidence(str(path), data)
     for identifier in defined:
-        key = identifier.lstrip("_")
+        match = gate.TRANSLATED_FN.search(identifier.encode())
+        assert match
+        key = match.group().decode().lstrip("_")
         definitions.setdefault(key, []).append({
             "path": str(path.relative_to(root)),
             "sha256": hashlib.sha256(data).hexdigest()
