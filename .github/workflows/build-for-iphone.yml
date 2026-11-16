@@ -37,6 +37,16 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           git clone --depth 1 --branch v0.1.2 https://github.com/chrissotraidis/f0x.git "$RUNNER_TEMP/f0x"
           git -C "$RUNNER_TEMP/f0x" rev-parse HEAD
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path(os.environ["RUNNER_TEMP"]) / "f0x/scripts/build-padmint-ios.sh"
+          source = path.read_text()
+          needle = "  -DGDX_INPROCESS_TORCH=ON " + chr(92) + chr(10)
+          assert source.count(needle) == 1, "Expected iOS CMake configuration not found"
+          source = source.replace(needle, needle + "  -DCMAKE_DISABLE_FIND_PACKAGE_libzip=ON " + chr(92) + chr(10))
+          path.write_text(source)
+          PY
           F0X_BUILD_JOBS=3 bash "$RUNNER_TEMP/f0x/scripts/build-padmint-ios.sh" "$RUNNER_TEMP/out/F0X-v0.1.2-ios-personal.ipa"
       - name: Audit the device package
         run: |
@@ -51,3 +61,13 @@ jobs:
             ${{ runner.temp }}/out/SHA256SUMS
           retention-days: 1
           if-no-files-found: error
+      - name: Keep configuration diagnostics if compilation fails
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: f0x-build-configuration
+          path: |
+            ${{ runner.temp }}/f0x/build/f0x-ios-device/CMakeCache.txt
+            ${{ runner.temp }}/f0x/build/f0x-ios-device/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 1
+          if-no-files-found: ignore
